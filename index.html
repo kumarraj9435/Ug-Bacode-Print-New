@@ -1164,7 +1164,12 @@ async function syncNow(manual){
     (fo.bar||[]).concat(fo.mrp||[]).forEach(x=>need.add(x.id));   // every file of both Drive folders
     rows.forEach(r=>{ [r.img,r.newBar,r.mrpNew].forEach(x=>x&&need.add(x)); if(cfg.old) [r.mrpOld,r.bar2].forEach(x=>x&&need.add(x)); });
     const have=new Set(await iKeys('files'));
-    const todo=[...need].filter(id=>!have.has(id));
+    // Drive "last modified" per file -> re-download files that were replaced in Drive under the same ID
+    const tmap={}; (fo.bar||[]).concat(fo.mrp||[]).forEach(x=>{ if(x.t) tmap[x.id]=x.t; });
+    const mt=(await iGet('meta','mtimes'))||{};
+    const stale=new Set();
+    for(const id of have){ if(!tmap[id]) continue; if(mt[id]===undefined) mt[id]=tmap[id]; else if(mt[id]!==tmap[id]) stale.add(id); }
+    const todo=[...need].filter(id=>!have.has(id)||stale.has(id));
     const total=todo.length; let done=0, fail=0, lastErr='';
     async function worker(){
       while(todo.length){
@@ -1174,7 +1179,7 @@ async function syncNow(manual){
             const f=await api(cfg,{api:'file',id});
             const u8=b64ToU8(f.b64);
             await iPut('files',{id,name:f.name,mime:f.mime,size:f.size,buf:u8.buffer,t:Date.now()});
-            ok=true;
+            ok=true; if(tmap[id]) mt[id]=tmap[id];
           }catch(e){ lastErr=e.message; if(!navigator.onLine) break; await sleep(700*(a+1)); }
         }
         ok?done++:fail++;
@@ -1184,11 +1189,13 @@ async function syncNow(manual){
     await Promise.all(Array.from({length:4},worker));
     // remove files no longer referenced by the sheet
     for(const id of have) if(!need.has(id)) await iDel('files',id);
+    for(const k of Object.keys(mt)) if(!need.has(k)) delete mt[k];
+    await iPut('meta',mt,'mtimes');
     await iPut('meta',Date.now(),'syncedAt');
     await iPut('meta',{fail,total,err:lastErr},'lastResult');
     if(changed||total){ fileCache.clear(); pdfCache.clear(); printCache.clear(); window.__foldersStale=true; await boot(false); }
     bar(null);
-    if(manual||total||changed) toast(fail? ('Sync done — '+fail+' files fail hui, dobara Sync dabao') : ('Sync complete ✓ '+(total?total+' new files':'sab up to date')));
+    if(manual||total||changed) toast(fail? ('Sync done — '+fail+' files fail hui, dobara Sync dabao') : ('Sync complete ✓ '+(total?total+' new/updated files':'sab up to date')));
   }catch(e){
     bar(null); setPill('err','Sync failed — '+e.message.slice(0,60));
     if(manual) toast('Sync failed: '+e.message);
@@ -1232,7 +1239,7 @@ $('#cfgTest').onclick=async()=>{ const c=await saveCfg(); cfgInfo('Testing…');
 $('#cfgFull').onclick=async()=>{
   if(!confirm('Saari downloaded files hata ke dobara download karein?')) return;
   const keys=await iKeys('files'); for(const k of keys) await iDel('files',k);
-  await iDel('meta','syncedAt'); closeCfg(); syncNow(true);
+  await iDel('meta','syncedAt'); await iDel('meta','mtimes'); closeCfg(); syncNow(true);
 };
 $('#refresh').title='Sync now';
 

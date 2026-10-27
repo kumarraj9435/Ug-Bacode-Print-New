@@ -1,5 +1,5 @@
 /* UNIGEN Desk — service worker: app shell works fully offline (data lives in IndexedDB) */
-const V = 'ug-desk-v1';
+const V = 'ug-desk-v2';
 const SHELL = ['./', 'index.html', 'manifest.webmanifest', 'icon-192.png', 'icon-512.png', 'apple-touch-icon.png'];
 
 self.addEventListener('install', e => {
